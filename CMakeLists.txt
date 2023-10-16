@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.1...3.25)
+
+set(CMAKE_CXX_STANDARD 17)
+message(STATUS "CMAKE_CXX_STANDARD " + ${CMAKE_CXX_STANDARD})
+
+set(WEBGPU_BACKEND "DAWN")
+
 project(
 	LearnWebGPU
 	VERSION 0.1.0

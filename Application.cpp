@@ -49,7 +49,7 @@
 using namespace wgpu;
 using VertexAttributes = ResourceManager::VertexAttributes;
 
-constexpr float PI = 3.14159265358979323846f;
+//constexpr float PI = 3.14159265358979323846f;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Public methods
@@ -59,21 +59,12 @@ bool Application::onInit() {
 	if (!initSwapChain()) return false;
 	if (!initDepthBuffer()) return false;
 	if (!initRenderPipeline()) return false;
-	if (!initTexture()) return false;
-	if (!initGeometry()) return false;
-	if (!initUniforms()) return false;
-	if (!initBindGroup()) return false;
 	if (!initGui()) return false;
 	return true;
 }
 
 void Application::onFrame() {
 	glfwPollEvents();
-	updateDragInertia();
-
-	// Update uniform buffer
-	m_uniforms.time = static_cast<float>(glfwGetTime());
-	m_queue.writeBuffer(m_uniformBuffer, offsetof(MyUniforms, time), &m_uniforms.time, sizeof(MyUniforms::time));
 	
 	TextureView nextTexture = m_swapChain.getCurrentTextureView();
 	if (!nextTexture) {
@@ -120,13 +111,6 @@ void Application::onFrame() {
 
 	renderPass.setPipeline(m_pipeline);
 
-	renderPass.setVertexBuffer(0, m_vertexBuffer, 0, m_vertexCount * sizeof(VertexAttributes));
-
-	// Set binding group
-	renderPass.setBindGroup(0, m_bindGroup, 0, nullptr);
-
-	renderPass.draw(m_vertexCount, 1, 0, 0);
-
 	// We add the GUI drawing commands to the render pass
 	updateGui(renderPass);
 
@@ -149,9 +133,6 @@ void Application::onFrame() {
 
 void Application::onFinish() {
 	terminateGui();
-	terminateBindGroup();
-	terminateUniforms();
-	terminateGeometry();
 	terminateTexture();
 	terminateRenderPipeline();
 	terminateDepthBuffer();
@@ -171,53 +152,6 @@ void Application::onResize() {
 	// Re-init
 	initSwapChain();
 	initDepthBuffer();
-
-	updateProjectionMatrix();
-}
-
-void Application::onMouseMove(double xpos, double ypos) {
-	if (m_drag.active) {
-		vec2 currentMouse = vec2(-(float)xpos, (float)ypos);
-		vec2 delta = (currentMouse - m_drag.startMouse) * m_drag.sensitivity;
-		m_cameraState.angles = m_drag.startCameraState.angles + delta;
-		// Clamp to avoid going too far when orbitting up/down
-		m_cameraState.angles.y = glm::clamp(m_cameraState.angles.y, -PI / 2 + 1e-5f, PI / 2 - 1e-5f);
-		updateViewMatrix();
-
-		// Inertia
-		m_drag.velocity = delta - m_drag.previousDelta;
-		m_drag.previousDelta = delta;
-	}
-}
-
-void Application::onMouseButton(int button, int action, int /* modifiers */) {
-	ImGuiIO& io = ImGui::GetIO();
-	if (io.WantCaptureMouse) {
-		// Don't rotate the camera if the mouse is already captured by an ImGui
-		// interaction at this frame.
-		return;
-	}
-
-	if (button == GLFW_MOUSE_BUTTON_LEFT) {
-		switch (action) {
-		case GLFW_PRESS:
-			m_drag.active = true;
-			double xpos, ypos;
-			glfwGetCursorPos(m_window, &xpos, &ypos);
-			m_drag.startMouse = vec2(-(float)xpos, (float)ypos);
-			m_drag.startCameraState = m_cameraState;
-			break;
-		case GLFW_RELEASE:
-			m_drag.active = false;
-			break;
-		}
-	}
-}
-
-void Application::onScroll(double /* xoffset */, double yoffset) {
-	m_cameraState.zoom += m_drag.scrollSensitivity * static_cast<float>(yoffset);
-	m_cameraState.zoom = glm::clamp(m_cameraState.zoom, -2.0f, 2.0f);
-	updateViewMatrix();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -303,18 +237,6 @@ bool Application::initWindowAndDevice() {
 	glfwSetFramebufferSizeCallback(m_window, [](GLFWwindow* window, int, int) {
 		auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 		if (that != nullptr) that->onResize();
-	});
-	glfwSetCursorPosCallback(m_window, [](GLFWwindow* window, double xpos, double ypos) {
-		auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-		if (that != nullptr) that->onMouseMove(xpos, ypos);
-	});
-	glfwSetMouseButtonCallback(m_window, [](GLFWwindow* window, int button, int action, int mods) {
-		auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-		if (that != nullptr) that->onMouseButton(button, action, mods);
-	});
-	glfwSetScrollCallback(m_window, [](GLFWwindow* window, double xoffset, double yoffset) {
-		auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-		if (that != nullptr) that->onScroll(xoffset, yoffset);
 	});
 
 	return m_device != nullptr;
@@ -479,44 +401,6 @@ bool Application::initRenderPipeline() {
 	pipelineDesc.multisample.mask = ~0u;
 	pipelineDesc.multisample.alphaToCoverageEnabled = false;
 
-	// Create binding layouts
-
-	// Since we now have 2 bindings, we use a vector to store them
-	std::vector<BindGroupLayoutEntry> bindingLayoutEntries(3, Default);
-
-	// The uniform buffer binding that we already had
-	BindGroupLayoutEntry& bindingLayout = bindingLayoutEntries[0];
-	bindingLayout.binding = 0;
-	bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-	bindingLayout.buffer.type = BufferBindingType::Uniform;
-	bindingLayout.buffer.minBindingSize = sizeof(MyUniforms);
-
-	// The texture binding
-	BindGroupLayoutEntry& textureBindingLayout = bindingLayoutEntries[1];
-	textureBindingLayout.binding = 1;
-	textureBindingLayout.visibility = ShaderStage::Fragment;
-	textureBindingLayout.texture.sampleType = TextureSampleType::Float;
-	textureBindingLayout.texture.viewDimension = TextureViewDimension::_2D;
-
-	// The texture sampler binding
-	BindGroupLayoutEntry& samplerBindingLayout = bindingLayoutEntries[2];
-	samplerBindingLayout.binding = 2;
-	samplerBindingLayout.visibility = ShaderStage::Fragment;
-	samplerBindingLayout.sampler.type = SamplerBindingType::Filtering;
-
-	// Create a bind group layout
-	BindGroupLayoutDescriptor bindGroupLayoutDesc{};
-	bindGroupLayoutDesc.entryCount = (uint32_t)bindingLayoutEntries.size();
-	bindGroupLayoutDesc.entries = bindingLayoutEntries.data();
-	m_bindGroupLayout = m_device.createBindGroupLayout(bindGroupLayoutDesc);
-
-	// Create the pipeline layout
-	PipelineLayoutDescriptor layoutDesc{};
-	layoutDesc.bindGroupLayoutCount = 1;
-	layoutDesc.bindGroupLayouts = (WGPUBindGroupLayout*)&m_bindGroupLayout;
-	PipelineLayout layout = m_device.createPipelineLayout(layoutDesc);
-	pipelineDesc.layout = layout;
-
 	m_pipeline = m_device.createRenderPipeline(pipelineDesc);
 	std::cout << "Render pipeline: " << m_pipeline << std::endl;
 
@@ -526,32 +410,15 @@ bool Application::initRenderPipeline() {
 void Application::terminateRenderPipeline() {
 	m_pipeline.release();
 	m_shaderModule.release();
-	m_bindGroupLayout.release();
+	//m_bindGroupLayout.release();
 }
 
 
 bool Application::initTexture() {
-	// Create a sampler
-	SamplerDescriptor samplerDesc;
-	samplerDesc.addressModeU = AddressMode::Repeat;
-	samplerDesc.addressModeV = AddressMode::Repeat;
-	samplerDesc.addressModeW = AddressMode::Repeat;
-	samplerDesc.magFilter = FilterMode::Linear;
-	samplerDesc.minFilter = FilterMode::Linear;
-	samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
-	samplerDesc.lodMinClamp = 0.0f;
-	samplerDesc.lodMaxClamp = 8.0f;
-	samplerDesc.compare = CompareFunction::Undefined;
-	samplerDesc.maxAnisotropy = 1;
-	m_sampler = m_device.createSampler(samplerDesc);
 
 	// Create a texture
-	m_texture = ResourceManager::loadTexture(RESOURCE_DIR "/fourareen2K_albedo.jpg", m_device, &m_textureView);
-	if (!m_texture) {
-		std::cerr << "Could not load texture!" << std::endl;
-		return false;
-	}
-	std::cout << "Texture: " << m_texture << std::endl;
+	auto texture = ResourceManager::loadTexture(RESOURCE_DIR "/fourareen2K_albedo.jpg", m_device, &m_textureView);
+	std::cout << "Texture: " << texture << std::endl;
 	std::cout << "Texture view: " << m_textureView << std::endl;
 
 	return m_textureView != nullptr;
@@ -559,141 +426,6 @@ bool Application::initTexture() {
 
 void Application::terminateTexture() {
 	m_textureView.release();
-	m_texture.destroy();
-	m_texture.release();
-	m_sampler.release();
-}
-
-
-bool Application::initGeometry() {
-	// Load mesh data from OBJ file
-	std::vector<VertexAttributes> vertexData;
-	bool success = ResourceManager::loadGeometryFromObj(RESOURCE_DIR "/fourareen.obj", vertexData);
-	if (!success) {
-		std::cerr << "Could not load geometry!" << std::endl;
-		return false;
-	}
-
-	// Create vertex buffer
-	BufferDescriptor bufferDesc;
-	bufferDesc.size = vertexData.size() * sizeof(VertexAttributes);
-	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
-	bufferDesc.mappedAtCreation = false;
-	m_vertexBuffer = m_device.createBuffer(bufferDesc);
-	m_queue.writeBuffer(m_vertexBuffer, 0, vertexData.data(), bufferDesc.size);
-
-	m_vertexCount = static_cast<int>(vertexData.size());
-
-	return m_vertexBuffer != nullptr;
-}
-
-void Application::terminateGeometry() {
-	m_vertexBuffer.destroy();
-	m_vertexBuffer.release();
-	m_vertexCount = 0;
-}
-
-
-bool Application::initUniforms() {
-	// Create uniform buffer
-	BufferDescriptor bufferDesc;
-	bufferDesc.size = sizeof(MyUniforms);
-	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-	bufferDesc.mappedAtCreation = false;
-	m_uniformBuffer = m_device.createBuffer(bufferDesc);
-
-	// Upload the initial value of the uniforms
-	m_uniforms.modelMatrix = mat4x4(1.0);
-	m_uniforms.viewMatrix = glm::lookAt(vec3(-2.0f, -3.0f, 2.0f), vec3(0.0f), vec3(0, 0, 1));
-	m_uniforms.projectionMatrix = glm::perspective(45 * PI / 180, 640.0f / 480.0f, 0.01f, 100.0f);
-	m_uniforms.time = 1.0f;
-	m_uniforms.color = { 0.0f, 1.0f, 0.4f, 1.0f };
-	m_queue.writeBuffer(m_uniformBuffer, 0, &m_uniforms, sizeof(MyUniforms));
-
-	updateProjectionMatrix();
-	updateViewMatrix();
-
-	return m_uniformBuffer != nullptr;
-}
-
-void Application::terminateUniforms() {
-	m_uniformBuffer.destroy();
-	m_uniformBuffer.release();
-}
-
-
-bool Application::initBindGroup() {
-	// Create a binding
-	std::vector<BindGroupEntry> bindings(3);
-
-	bindings[0].binding = 0;
-	bindings[0].buffer = m_uniformBuffer;
-	bindings[0].offset = 0;
-	bindings[0].size = sizeof(MyUniforms);
-
-	bindings[1].binding = 1;
-	bindings[1].textureView = m_textureView;
-
-	bindings[2].binding = 2;
-	bindings[2].sampler = m_sampler;
-
-	BindGroupDescriptor bindGroupDesc;
-	bindGroupDesc.layout = m_bindGroupLayout;
-	bindGroupDesc.entryCount = (uint32_t)bindings.size();
-	bindGroupDesc.entries = bindings.data();
-	m_bindGroup = m_device.createBindGroup(bindGroupDesc);
-
-	return m_bindGroup != nullptr;
-}
-
-void Application::terminateBindGroup() {
-	m_bindGroup.release();
-}
-
-void Application::updateProjectionMatrix() {
-	// Update projection matrix
-	int width, height;
-	glfwGetFramebufferSize(m_window, &width, &height);
-	float ratio = width / (float)height;
-	m_uniforms.projectionMatrix = glm::perspective(45 * PI / 180, ratio, 0.01f, 100.0f);
-	m_queue.writeBuffer(
-		m_uniformBuffer,
-		offsetof(MyUniforms, projectionMatrix),
-		&m_uniforms.projectionMatrix,
-		sizeof(MyUniforms::projectionMatrix)
-	);
-}
-
-void Application::updateViewMatrix() {
-	float cx = cos(m_cameraState.angles.x);
-	float sx = sin(m_cameraState.angles.x);
-	float cy = cos(m_cameraState.angles.y);
-	float sy = sin(m_cameraState.angles.y);
-	vec3 position = vec3(cx * cy, sx * cy, sy) * std::exp(-m_cameraState.zoom);
-	m_uniforms.viewMatrix = glm::lookAt(position, vec3(0.0f), vec3(0, 0, 1));
-	m_queue.writeBuffer(
-		m_uniformBuffer,
-		offsetof(MyUniforms, viewMatrix),
-		&m_uniforms.viewMatrix,
-		sizeof(MyUniforms::viewMatrix)
-	);
-}
-
-void Application::updateDragInertia() {
-	constexpr float eps = 1e-4f;
-	// Apply inertia only when the user released the click.
-	if (!m_drag.active) {
-		// Avoid updating the matrix when the velocity is no longer noticeable
-		if (std::abs(m_drag.velocity.x) < eps && std::abs(m_drag.velocity.y) < eps) {
-			return;
-		}
-		m_cameraState.angles += m_drag.velocity;
-		m_cameraState.angles.y = glm::clamp(m_cameraState.angles.y, -PI / 2 + 1e-5f, PI / 2 - 1e-5f);
-		// Dampen the velocity so that it decreases exponentially and stops
-		// after a few frames.
-		m_drag.velocity *= m_drag.intertia;
-		updateViewMatrix();
-	}
 }
 
 bool Application::initGui() {

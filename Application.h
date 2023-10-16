@@ -49,11 +49,6 @@ public:
 	// A function called when the window is resized.
 	void onResize();
 
-	// Mouse events
-	void onMouseMove(double xpos, double ypos);
-	void onMouseButton(int button, int action, int mods);
-	void onScroll(double xoffset, double yoffset);
-
 private:
 	bool initWindowAndDevice();
 	void terminateWindowAndDevice();
@@ -71,13 +66,10 @@ private:
 	void terminateTexture();
 
 	bool initGeometry();
-	void terminateGeometry();
 
 	bool initUniforms();
-	void terminateUniforms();
 
 	bool initBindGroup();
-	void terminateBindGroup();
 
 	void updateProjectionMatrix();
 	void updateViewMatrix();
@@ -153,27 +145,8 @@ private:
 	wgpu::Texture m_depthTexture = nullptr;
 	wgpu::TextureView m_depthTextureView = nullptr;
 
-	// Render Pipeline
-	wgpu::BindGroupLayout m_bindGroupLayout = nullptr;
 	wgpu::ShaderModule m_shaderModule = nullptr;
 	wgpu::RenderPipeline m_pipeline = nullptr;
-
-	// Texture
-	wgpu::Sampler m_sampler = nullptr;
-	wgpu::Texture m_texture = nullptr;
 	wgpu::TextureView m_textureView = nullptr;
 	
-	// Geometry
-	wgpu::Buffer m_vertexBuffer = nullptr;
-	int m_vertexCount = 0;
-
-	// Uniforms
-	wgpu::Buffer m_uniformBuffer = nullptr;
-	MyUniforms m_uniforms;
-
-	// Bind Group
-	wgpu::BindGroup m_bindGroup = nullptr;
-
-	CameraState m_cameraState;
-	DragState m_drag;
 };
