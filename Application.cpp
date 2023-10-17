@@ -58,7 +58,6 @@ bool Application::onInit() {
 	if (!initWindowAndDevice()) return false;
 	if (!initSwapChain()) return false;
 	if (!initDepthBuffer()) return false;
-	if (!initRenderPipeline()) return false;
 	if (!initGui()) return false;
 	return true;
 }
@@ -109,8 +108,6 @@ void Application::onFrame() {
 	renderPassDesc.timestampWrites = nullptr;
 	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
 
-	renderPass.setPipeline(m_pipeline);
-
 	// We add the GUI drawing commands to the render pass
 	updateGui(renderPass);
 
@@ -133,8 +130,6 @@ void Application::onFrame() {
 
 void Application::onFinish() {
 	terminateGui();
-	terminateTexture();
-	terminateRenderPipeline();
 	terminateDepthBuffer();
 	terminateSwapChain();
 	terminateWindowAndDevice();
@@ -315,118 +310,6 @@ void Application::terminateDepthBuffer() {
 }
 
 
-bool Application::initRenderPipeline() {
-	std::cout << "Creating shader module..." << std::endl;
-	m_shaderModule = ResourceManager::loadShaderModule(RESOURCE_DIR "/shader.wgsl", m_device);
-	std::cout << "Shader module: " << m_shaderModule << std::endl;
-
-	std::cout << "Creating render pipeline..." << std::endl;
-	RenderPipelineDescriptor pipelineDesc;
-
-	// Vertex fetch
-	std::vector<VertexAttribute> vertexAttribs(4);
-
-	// Position attribute
-	vertexAttribs[0].shaderLocation = 0;
-	vertexAttribs[0].format = VertexFormat::Float32x3;
-	vertexAttribs[0].offset = 0;
-
-	// Normal attribute
-	vertexAttribs[1].shaderLocation = 1;
-	vertexAttribs[1].format = VertexFormat::Float32x3;
-	vertexAttribs[1].offset = offsetof(VertexAttributes, normal);
-
-	// Color attribute
-	vertexAttribs[2].shaderLocation = 2;
-	vertexAttribs[2].format = VertexFormat::Float32x3;
-	vertexAttribs[2].offset = offsetof(VertexAttributes, color);
-
-	// UV attribute
-	vertexAttribs[3].shaderLocation = 3;
-	vertexAttribs[3].format = VertexFormat::Float32x2;
-	vertexAttribs[3].offset = offsetof(VertexAttributes, uv);
-
-	VertexBufferLayout vertexBufferLayout;
-	vertexBufferLayout.attributeCount = (uint32_t)vertexAttribs.size();
-	vertexBufferLayout.attributes = vertexAttribs.data();
-	vertexBufferLayout.arrayStride = sizeof(VertexAttributes);
-	vertexBufferLayout.stepMode = VertexStepMode::Vertex;
-
-	pipelineDesc.vertex.bufferCount = 1;
-	pipelineDesc.vertex.buffers = &vertexBufferLayout;
-
-	pipelineDesc.vertex.module = m_shaderModule;
-	pipelineDesc.vertex.entryPoint = "vs_main";
-	pipelineDesc.vertex.constantCount = 0;
-	pipelineDesc.vertex.constants = nullptr;
-
-	pipelineDesc.primitive.topology = PrimitiveTopology::TriangleList;
-	pipelineDesc.primitive.stripIndexFormat = IndexFormat::Undefined;
-	pipelineDesc.primitive.frontFace = FrontFace::CCW;
-	pipelineDesc.primitive.cullMode = CullMode::None;
-
-	FragmentState fragmentState;
-	pipelineDesc.fragment = &fragmentState;
-	fragmentState.module = m_shaderModule;
-	fragmentState.entryPoint = "fs_main";
-	fragmentState.constantCount = 0;
-	fragmentState.constants = nullptr;
-
-	BlendState blendState;
-	blendState.color.srcFactor = BlendFactor::SrcAlpha;
-	blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
-	blendState.color.operation = BlendOperation::Add;
-	blendState.alpha.srcFactor = BlendFactor::Zero;
-	blendState.alpha.dstFactor = BlendFactor::One;
-	blendState.alpha.operation = BlendOperation::Add;
-
-	ColorTargetState colorTarget;
-	colorTarget.format = m_swapChainFormat;
-	colorTarget.blend = &blendState;
-	colorTarget.writeMask = ColorWriteMask::All;
-
-	fragmentState.targetCount = 1;
-	fragmentState.targets = &colorTarget;
-
-	DepthStencilState depthStencilState = Default;
-	depthStencilState.depthCompare = CompareFunction::Less;
-	depthStencilState.depthWriteEnabled = true;
-	depthStencilState.format = m_depthTextureFormat;
-	depthStencilState.stencilReadMask = 0;
-	depthStencilState.stencilWriteMask = 0;
-
-	pipelineDesc.depthStencil = &depthStencilState;
-
-	pipelineDesc.multisample.count = 1;
-	pipelineDesc.multisample.mask = ~0u;
-	pipelineDesc.multisample.alphaToCoverageEnabled = false;
-
-	m_pipeline = m_device.createRenderPipeline(pipelineDesc);
-	std::cout << "Render pipeline: " << m_pipeline << std::endl;
-
-	return m_pipeline != nullptr;
-}
-
-void Application::terminateRenderPipeline() {
-	m_pipeline.release();
-	m_shaderModule.release();
-	//m_bindGroupLayout.release();
-}
-
-
-bool Application::initTexture() {
-
-	// Create a texture
-	auto texture = ResourceManager::loadTexture(RESOURCE_DIR "/fourareen2K_albedo.jpg", m_device, &m_textureView);
-	std::cout << "Texture: " << texture << std::endl;
-	std::cout << "Texture view: " << m_textureView << std::endl;
-
-	return m_textureView != nullptr;
-}
-
-void Application::terminateTexture() {
-	m_textureView.release();
-}
 
 bool Application::initGui() {
 	// Setup Dear ImGui context
